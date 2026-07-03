@@ -1,0 +1,439 @@
+import sqlite3
+import datetime
+
+# setup the database
+
+def setup_database():
+    conn = sqlite3.connect("layers.db")
+    cursor = conn.cursor()
+
+    # table 1 : chicken batches
+    cursor.execute("""
+                   CREATE TABLE IF NOT EXISTS batches(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT,
+                    type TEXT, -- 'layers' or 'kienyeji'
+                    date_acquired TEXT,
+                    initial_count INTEGER,
+                    current_count INTEGER,
+                    purchase_cost REAL,
+                    status TEXT DEFAULT 'active' -- 'active' or 'spent'
+                    )
+                    """)
+    
+    # table 2 : daily egg production
+    cursor.execute("""
+                   CREATE TABLE IF NOT EXISTS egg_production (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    batch_id INTEGER,
+                    date TEXT,
+                    count_dozen INTEGER,
+                    FOREIGN KEY(batch_id) REFERENCES batches(id)
+                    )
+                    """)
+
+    # table 3 : feed usage(cost of feed eaten)
+    cursor.execute("""
+                   CREATE TABLE IF NOT EXISTS feed_usage (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    batch_id INTEGER,
+                    date TEXT,
+                    feed_type TEXT, -- e.g., 'layers mash', 'kienyeji pellets'
+                    quantity_kg REAL,
+                    unit_cost REAL, --cost per kg
+                    FOREIGN KEY(batch_id) REFERENCES batches(id)
+                    )
+                    """)
+
+    # table 4 : other costs (vaccines, medications, labor, etc)
+    cursor.execute("""
+                   CREATE TABLE IF NOT EXISTS other_costs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    date TEXT,
+                    category TEXT,
+                    amount REAL
+                    )
+                    """)
+
+    # table 5 : egg sales 
+    cursor.execute("""
+                   CREATE TABLE IF NOT EXISTS egg_sales (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    batch_id INTEGER,
+                    date TEXT,
+                    quantity_dozen INTEGER,
+                    price_per_dozen REAL,
+                    customer_name TEXT,
+                    FOREIGN KEY(batch_id) REFERENCES batches(id)
+                    )
+                    """)
+
+    # table 6 : customer orders
+    cursor.execute("""
+                   CREATE TABLE IF NOT EXISTS orders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    customer_name TEXT,
+                    phone TEXT,
+                    egg_type TEXT, -- 'layers' or 'kienyeji'
+                    quantity_dozen INTEGER,
+                    total_price REAL,
+                    order_date TEXT,
+                    status TEXT DEFAULT 'pending' -- 'pending', 'paid', 'delivered'
+                    )
+                    """)
+
+    # table 7 : spents hens for sale
+    cursor.execute("""
+                   CREATE TABLE IF NOT EXISTS spent_sales (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    batch_id INTEGER,
+                    date TEXT,
+                    count_sold INTEGER,
+                    price_per_bird REAL,
+                    buyer_name TEXT,
+                    FOREIGN KEY(batch_id) REFERENCES batches(id)
+                    )
+                    """)
+
+    conn.commit()
+    conn.close()
+    print("Database setup complete!")
+
+    # functions
+def get_batch_choices():
+    conn = sqlite3.connect("layers.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name, type FROM batches WHERE status = 'active'")
+    batches = cursor.fetchall()
+    conn.close()
+    return batches
+
+def get_current_date():
+    return datetime.date.today().isoformat()
+
+
+def add_batch():
+    print("\n--- Add New Chicken Batch ---")
+    name = input("Enter batch name: ")
+    b_type = input("Enter batch type (layers/kienyeji): ")
+    date = input("Enter date acquired (YYYY-MM-DD): ")
+    count = int(input("Enter initial count of chickens: "))
+    cost = float(input("Enter total purchase cost(KSH): "))
+
+    conn = sqlite3.connect("layers.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+                   INSERT INTO batches (name, type, date_acquired, initial_count, current_count, purchase_cost)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   """, (name, b_type, date, count, count, cost))
+    conn.commit()
+    conn.close()
+    print("Batch added successfully!")
+
+def record_eggs():
+    batches = get_batch_choices()
+    if not batches:
+        print("No active batches! Add a batch first.")
+        return
+    
+    print("\n--- Record Daily Eggs ---")
+    for b in batches:
+        print(f"{b[0]}: {b[1]} ({b[2]})")
+
+    batch_id = int(input("Select batch ID: "))
+    date = input("Enter date (YYYY-MM-DD): ")
+    dozens = int(input("Enter number of dozens collected:"))
+
+
+    conn = sqlite3.connect("layers.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+                   INSERT INTO egg_production (batch_id, date, count_dozen)
+                   VALUES (?, ?, ?)
+                   """, (batch_id, date, dozens))
+    conn.commit()
+    conn.close()
+    print("Eggs recorded successfully!")
+
+def record_feed():
+    batches = get_batch_choices()
+    if not batches:
+        print("No active batches")
+        return
+    
+    print("\n--- Record Feed Usage ---")
+    for b in batches:
+        print(f"{b[0]}: {b[1]} ({b[2]})")
+
+    batch_id = int(input("Select batch ID: "))
+    date = input("Enter date (YYYY-MM-DD): ")
+    feed_type = input("Enter feed type (e.g., layers mash, kienyeji pellets): ")
+    kg = float(input("Enter quantity in kg: "))
+    cost_per_kg = float(input("Enter cost per kg (KSH): "))
+
+    conn = sqlite3.connect("layers.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+                   INSERT INTO feed_usage (batch_id, date, feed_type, quantity_kg, unit_cost)
+                   VALUES (?, ?, ?, ?, ?)
+                   """, (batch_id, date, feed_type, kg, cost_per_kg))
+    conn.commit()
+    conn.close()
+    print("Feed usage recorded successfully!")
+
+def add_other_cost():
+    print("\n--- Add Other Cost ---")
+    date = input("Enter date (YYYY-MM-DD): ")
+    category = input("Enter cost category (e.g., vaccines, medications, labor): ")
+    amount = float(input("Enter amount (KSH): "))
+
+    conn = sqlite3.connect("layers.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+                   INSERT INTO other_costs (date, category, amount)
+                   VALUES (?, ?, ?)
+                   """, (date, category, amount))
+    conn.commit()
+    conn.close()
+    print("Cost added successfully!")
+
+def record_egg_sale():
+    batches = get_batch_choices()
+    if not batches:
+        print("No active batches")
+        return
+    
+    print("\n--- Record Egg Sale ---")
+    for b in batches:
+        print(f"{b[0]}: {b[1]} ({b[2]})")
+
+    batch_id = int(input("Select batch ID: "))
+    date = input("Enter date (YYYY-MM-DD): ")
+    dozens = int(input("Enter dozens sold: "))
+    price = float(input("Enter price per dozen (KSH): "))
+    customer = input("Enter customer name: ") or "Walk-in"
+
+    conn = sqlite3.connect("layers.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+                   INSERT INTO egg_sales (batch_id, date, quantity_dozen, price_per_dozen, customer_name)
+                   VALUES (?, ?, ?, ?, ?)
+                   """, (batch_id, date, dozens, price, customer))
+    conn.commit()
+    conn.close()
+    print("Egg sales recorded!")
+
+    # customer orders
+def place_customer_order():
+    print("\n--- Place Customer Order ---")
+    name = input("Enter customer name: ")
+    phone = input("Enter customer phone: ")
+    egg_type = input("Enter egg type (layers/kienyeji): ").lower()
+    dozens = int(input("Enter quantity in dozens: "))
+    
+
+    # prices per dozen
+    if egg_type == "layers":
+        price_per_dozen = 400
+    elif egg_type == "kienyeji":
+        price_per_dozen = 750
+
+    else:
+        print("Invalid egg type! Order not placed.")
+        return
+    
+    total = dozens * price_per_dozen
+    date = get_current_date()
+
+    conn = sqlite3.connect("layers.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+                   INSERT INTO orders (customer_name, phone, egg_type, quantity_dozen, total_price, order_date)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   """, (name, phone, egg_type, dozens, total, date))
+    conn.commit()
+    conn.close()
+    print(f"Order placed successfully! Total price: KSH {total}. Status: pending payment.")
+
+    # spent hens
+def sell_spent_hens():
+    # show only spent batches
+    conn = sqlite3.connect("layers.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name, current_count FROM batches WHERE status = 'spent' AND current_count > 0")
+    spent = cursor.fetchall()
+    conn.close()
+
+    if not spent:
+        print("No spent batches available for sale.")
+        return  
+    
+    print("\n--- Sell Spent Hens ---")
+    for b in spent:
+        print(f"{b[0]}. {b[1]} (Available: {b[2]} birds)")
+
+    batch_id = int(input("Select batch ID: "))
+    count = int(input("Enter number of birds sold: "))
+    price = float(input("Enter price per bird (KSH): "))
+    buyer = input("Enter buyer name: ") or "Walk-in"
+    date = get_current_date()
+
+    conn = sqlite3.connect("layers.db")
+    cursor = conn.cursor()
+
+    # record the sale
+    cursor.execute("""
+                   INSERT INTO spent_sales (batch_id, date, count_sold, price_per_bird, buyer_name)
+                   VALUES (?, ?, ?, ?, ?)
+                   """, (batch_id, date, count, price, buyer))
+    
+    # update the current count of the batch
+    cursor.execute("UPDATE batches SET current_count = current_count - ? WHERE id = ?", (count, batch_id))
+
+    conn.commit()
+    conn.close()
+    print("Spent hens sale recorded successfully!")
+
+def mark_batch_as_spent():
+    batches = get_batch_choices()
+    if not batches:
+        print("No active batches.")
+        return
+    
+    print("\n--- Mark Batch as Spent ---")
+    for b in batches:
+        print(f"{b[0]}. {b[1]} ({b[2]})")
+
+    batch_id = int(input("Select batch ID to mark as spent: "))
+
+    conn = sqlite3.connect("layers.db")
+    cursor = conn.cursor()
+    cursor.execute("UPDATE batches SET status = 'spent' WHERE id = ?", (batch_id,))
+    conn.commit()
+    conn.close()
+    print("Batch marked as spent successfully!")
+
+# mainmenu(dashboard)
+def show_dashboard():
+    conn = sqlite3.connect("layers.db")
+    cursor = conn.cursor()
+
+    print("\n" + "="*50)
+    print("CHICKEN FARM MANAGEMENT DASHBOARD")
+    print("="*50)
+
+    # 1. Current Inventory
+    cursor.execute("SELECT type, SUM(current_count) FROM batches WHERE status='active' GROUP BY type")
+    inventory = cursor.fetchall()
+    print("\n ACTIVE CHICKENS:")
+    for row in inventory:
+        print(f"   - {row[0].capitalize()}: {row[1] if row[1] else 0} birds")
+
+    # 2. Total Revenue (Egg Sales)
+    cursor.execute("SELECT SUM(quantity_dozen * price_per_dozen) FROM egg_sales")
+    revenue = cursor.fetchone()[0] or 0
+
+        # 3. Total Costs
+    # a) Feed costs
+    cursor.execute("SELECT SUM(quantity_kg * unit_cost) FROM feed_usage")
+    feed_cost = cursor.fetchone()[0] or 0
+    # b) Other costs
+    cursor.execute("SELECT SUM(amount) FROM other_costs")
+    other_cost = cursor.fetchone()[0] or 0
+    # c) Initial purchase costs of ALL batches
+    cursor.execute("SELECT SUM(purchase_cost) FROM batches")
+    purchase_cost = cursor.fetchone()[0] or 0
+    
+    total_costs = feed_cost + other_cost + purchase_cost
+    profit = revenue - total_costs
+
+
+    print("\n FINANCIAL SUMMARY (KSH): ")
+    print(f"   - Total Revenue from Egg Sales: {revenue:,.2f}")
+    print(f"  - Total feed costs: {feed_cost:,.2f}")
+    print(f"  - Total other costs: {other_cost:,.2f}")
+    print(f"  - Initial stock costs: {purchase_cost:,.2f}")
+    print(f"  - ---------------------------------")
+    print(f"  - NET PROFIT: {profit:,.2f}")
+
+    # 4. Pending Customer Orders
+    cursor.execute("SELECT COUNT(*), SUM(total_price) FROM orders WHERE status='pending'")
+    pending = cursor.fetchone()
+    print(f"\n PENDING ORDERS: {pending[0]} (Total value: KSH {pending[1] if pending[1] else 0:,.2f})")
+
+    # 5. Recent egg production (last 7 days)
+    print("\n RECENT EGG PRODUCTION (last 7 days):")
+    cursor.execute('''
+        SELECT b.name, SUM(e.count_dozen) 
+        FROM egg_production e 
+        JOIN batches b ON e.batch_id = b.id 
+        WHERE e.date >= date('now', '-7 days')
+        GROUP BY b.name
+    ''')
+
+    recent = cursor.fetchall()
+    if recent:
+        for row in recent:
+            print(f"   - {row[0]}: {row[1]} dozens")
+    else:
+        print("   - No eggs recorded in the last 7 days.")
+
+    conn.close()
+    print("\n" + "="*50)
+
+    # MAINMENU
+def main_menu():
+    setup_database()
+
+    while True:
+        print("\n LAYER FARM MANAGER")
+        print("1. Add New Chicken Batch")
+        print("2. Record Daily Egg Production")
+        print("3. Record Feed Usage")
+        print("4. Add Other Cost (Medicine/Labour)")
+        print("5. Record Egg Sale (Revenue)")
+        print("6. Place Customer Order (Simulate App Order)")
+        print("7. Mark Batch as 'Spent'")
+        print("8. Sell Spent Hens")
+        print("9. Show Dashboard / Profit")
+        print("0. Exit")
+        
+        choice = input("Enter your choice: ")
+
+        if choice == '1':
+            add_batch()
+        elif choice == '2':
+            record_eggs()
+        elif choice == '3':
+            record_feed()
+        elif choice == '4':
+            add_other_cost()
+        elif choice == '5':
+            record_egg_sale()
+        elif choice == '6':
+            place_customer_order()
+        elif choice == '7':
+            mark_batch_as_spent()
+        elif choice == '8':
+            sell_spent_hens()
+        elif choice == '9':
+            show_dashboard()
+        elif choice == '0':
+            print("Exiting. Goodbye!")
+            break
+        else:
+            print("Invalid choice! Please try again.")
+
+# run the main menu
+if __name__ == "__main__":
+    main_menu()
+
+
+
+
+
+
+
+
+
+
