@@ -1,439 +1,601 @@
 import sqlite3
 import datetime
+import pandas as pd
+import streamlit as st
 
-# setup the database
-
+# DATABASE SETUP
 def setup_database():
     conn = sqlite3.connect("layers.db")
     cursor = conn.cursor()
-
-    # table 1 : chicken batches
     cursor.execute("""
-                   CREATE TABLE IF NOT EXISTS batches(
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT,
-                    type TEXT, -- 'layers' or 'kienyeji'
-                    date_acquired TEXT,
-                    initial_count INTEGER,
-                    current_count INTEGER,
-                    purchase_cost REAL,
-                    status TEXT DEFAULT 'active' -- 'active' or 'spent'
-                    )
-                    """)
-    
-    # table 2 : daily egg production
+        CREATE TABLE IF NOT EXISTS batches(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            type TEXT,
+            date_acquired TEXT,
+            initial_count INTEGER,
+            current_count INTEGER,
+            purchase_cost REAL,
+            status TEXT DEFAULT 'active'
+        )
+    """)
     cursor.execute("""
-                   CREATE TABLE IF NOT EXISTS egg_production (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    batch_id INTEGER,
-                    date TEXT,
-                    count_dozen INTEGER,
-                    FOREIGN KEY(batch_id) REFERENCES batches(id)
-                    )
-                    """)
-
-    # table 3 : feed usage(cost of feed eaten)
+        CREATE TABLE IF NOT EXISTS egg_production(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            batch_id INTEGER,
+            date TEXT,
+            count_dozen INTEGER,
+            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE   -- CHANGED
+        )
+    """)
     cursor.execute("""
-                   CREATE TABLE IF NOT EXISTS feed_usage (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    batch_id INTEGER,
-                    date TEXT,
-                    feed_type TEXT, -- e.g., 'layers mash', 'kienyeji pellets'
-                    quantity_kg REAL,
-                    unit_cost REAL, --cost per kg
-                    FOREIGN KEY(batch_id) REFERENCES batches(id)
-                    )
-                    """)
-
-    # table 4 : other costs (vaccines, medications, labor, etc)
+        CREATE TABLE IF NOT EXISTS feed_usage(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            batch_id INTEGER,
+            date TEXT,
+            feed_type TEXT,
+            quantity_kg REAL,
+            unit_cost REAL,
+            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE   -- CHANGED
+        )
+    """)
     cursor.execute("""
-                   CREATE TABLE IF NOT EXISTS other_costs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    date TEXT,
-                    category TEXT,
-                    amount REAL
-                    )
-                    """)
-
-    # table 5 : egg sales 
+        CREATE TABLE IF NOT EXISTS other_costs(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT,
+            category TEXT,
+            amount REAL
+        )
+    """)
     cursor.execute("""
-                   CREATE TABLE IF NOT EXISTS egg_sales (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    batch_id INTEGER,
-                    date TEXT,
-                    quantity_dozen INTEGER,
-                    price_per_dozen REAL,
-                    customer_name TEXT,
-                    FOREIGN KEY(batch_id) REFERENCES batches(id)
-                    )
-                    """)
-
-    # table 6 : customer orders
+        CREATE TABLE IF NOT EXISTS egg_sales(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            batch_id INTEGER,
+            date TEXT,
+            quantity_dozen INTEGER,
+            price_per_dozen REAL,
+            customer_name TEXT,
+            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE   -- CHANGED
+        )
+    """)
     cursor.execute("""
-                   CREATE TABLE IF NOT EXISTS orders (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    customer_name TEXT,
-                    phone TEXT,
-                    egg_type TEXT, -- 'layers' or 'kienyeji'
-                    quantity_dozen INTEGER,
-                    total_price REAL,
-                    order_date TEXT,
-                    status TEXT DEFAULT 'pending' -- 'pending', 'paid', 'delivered'
-                    )
-                    """)
-
-    # table 7 : spents hens for sale
+        CREATE TABLE IF NOT EXISTS orders(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_name TEXT,
+            phone TEXT,
+            egg_type TEXT,
+            quantity_dozen INTEGER,
+            total_price REAL,
+            order_date TEXT,
+            status TEXT DEFAULT 'pending'
+        )
+    """)
     cursor.execute("""
-                   CREATE TABLE IF NOT EXISTS spent_sales (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    batch_id INTEGER,
-                    date TEXT,
-                    count_sold INTEGER,
-                    price_per_bird REAL,
-                    buyer_name TEXT,
-                    FOREIGN KEY(batch_id) REFERENCES batches(id)
-                    )
-                    """)
-
+        CREATE TABLE IF NOT EXISTS spent_sales(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            batch_id INTEGER,
+            date TEXT,
+            count_sold INTEGER,
+            price_per_bird REAL,
+            buyer_name TEXT,
+            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE   -- CHANGED
+        )
+    """)
     conn.commit()
     conn.close()
-    print("Database setup complete!")
 
-    # functions
-def get_batch_choices():
-    conn = sqlite3.connect("layers.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, name, type FROM batches WHERE status = 'active'")
-    batches = cursor.fetchall()
-    conn.close()
-    return batches
-
-def get_current_date():
-    return datetime.date.today().isoformat()
-
-
-def add_batch():
-    print("\n--- Add New Chicken Batch ---")
-    name = input("Enter batch name: ")
-    b_type = input("Enter batch type (layers/kienyeji): ")
-    date = input("Enter date acquired (YYYY-MM-DD): ")
-    count = int(input("Enter initial count of chickens: "))
-    cost = float(input("Enter total purchase cost(KSH): "))
-
-    conn = sqlite3.connect("layers.db")
-    cursor = conn.cursor()
-    cursor.execute("""
-                   INSERT INTO batches (name, type, date_acquired, initial_count, current_count, purchase_cost)
-                   VALUES (?, ?, ?, ?, ?, ?)
-                   """, (name, b_type, date, count, count, cost))
-    conn.commit()
-    conn.close()
-    print("Batch added successfully!")
-
-def record_eggs():
-    batches = get_batch_choices()
-    if not batches:
-        print("No active batches! Add a batch first.")
-        return
+#  HELPER FUNCTIONS 
+def get_connection():
     
-    print("\n--- Record Daily Eggs ---")
-    for b in batches:
-        print(f"{b[0]}: {b[1]} ({b[2]})")
+    return sqlite3.connect("layers.db")
 
-    batch_id = int(input("Select batch ID: "))
-    date = input("Enter date (YYYY-MM-DD): ")
-    dozens = int(input("Enter number of dozens collected:"))
-
-
-    conn = sqlite3.connect("layers.db")
-    cursor = conn.cursor()
-    cursor.execute("""
-                   INSERT INTO egg_production (batch_id, date, count_dozen)
-                   VALUES (?, ?, ?)
-                   """, (batch_id, date, dozens))
-    conn.commit()
-    conn.close()
-    print("Eggs recorded successfully!")
-
-def record_feed():
-    batches = get_batch_choices()
-    if not batches:
-        print("No active batches")
-        return
+def get_active_batches():
     
-    print("\n--- Record Feed Usage ---")
-    for b in batches:
-        print(f"{b[0]}: {b[1]} ({b[2]})")
-
-    batch_id = int(input("Select batch ID: "))
-    date = input("Enter date (YYYY-MM-DD): ")
-    feed_type = input("Enter feed type (e.g., layers mash, kienyeji pellets): ")
-    kg = float(input("Enter quantity in kg: "))
-    cost_per_kg = float(input("Enter cost per kg (KSH): "))
-
-    conn = sqlite3.connect("layers.db")
-    cursor = conn.cursor()
-    cursor.execute("""
-                   INSERT INTO feed_usage (batch_id, date, feed_type, quantity_kg, unit_cost)
-                   VALUES (?, ?, ?, ?, ?)
-                   """, (batch_id, date, feed_type, kg, cost_per_kg))
-    conn.commit()
+    conn = get_connection()
+    df = pd.read_sql_query("SELECT id, name, type, current_count FROM batches WHERE status='active'", conn)
     conn.close()
-    print("Feed usage recorded successfully!")
+    return df
 
-def add_other_cost():
-    print("\n--- Add Other Cost ---")
-    date = input("Enter date (YYYY-MM-DD): ")
-    category = input("Enter cost category (e.g., vaccines, medications, labor): ")
-    amount = float(input("Enter amount (KSH): "))
-
-    conn = sqlite3.connect("layers.db")
-    cursor = conn.cursor()
-    cursor.execute("""
-                   INSERT INTO other_costs (date, category, amount)
-                   VALUES (?, ?, ?)
-                   """, (date, category, amount))
-    conn.commit()
-    conn.close()
-    print("Cost added successfully!")
-
-def record_egg_sale():
-    batches = get_batch_choices()
-    if not batches:
-        print("No active batches")
-        return
+def get_all_batches():
     
-    print("\n--- Record Egg Sale ---")
-    for b in batches:
-        print(f"{b[0]}: {b[1]} ({b[2]})")
-
-    batch_id = int(input("Select batch ID: "))
-    date = input("Enter date (YYYY-MM-DD): ")
-    dozens = int(input("Enter dozens sold: "))
-    price = float(input("Enter price per dozen (KSH): "))
-    customer = input("Enter customer name: ") or "Walk-in"
-
-    conn = sqlite3.connect("layers.db")
-    cursor = conn.cursor()
-    cursor.execute("""
-                   INSERT INTO egg_sales (batch_id, date, quantity_dozen, price_per_dozen, customer_name)
-                   VALUES (?, ?, ?, ?, ?)
-                   """, (batch_id, date, dozens, price, customer))
-    conn.commit()
+    conn = get_connection()
+    df = pd.read_sql_query("SELECT * FROM batches", conn)
     conn.close()
-    print("Egg sales recorded!")
+    return df
 
-    # customer orders
-def place_customer_order():
-    print("\n--- Place Customer Order ---")
-    name = input("Enter customer name: ")
-    phone = input("Enter customer phone: ")
-    egg_type = input("Enter egg type (layers/kienyeji): ").lower()
-    dozens = int(input("Enter quantity in dozens: "))
-    
-
-    # prices per dozen
-    if egg_type == "layers":
-        price_per_dozen = 400
-    elif egg_type == "kienyeji":
-        price_per_dozen = 750
-
-    else:
-        print("Invalid egg type! Order not placed.")
-        return
-    
-    total = dozens * price_per_dozen
-    date = get_current_date()
-
-    conn = sqlite3.connect("layers.db")
+def get_batch_name(batch_id):
+   
+    conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-                   INSERT INTO orders (customer_name, phone, egg_type, quantity_dozen, total_price, order_date)
-                   VALUES (?, ?, ?, ?, ?, ?)
-                   """, (name, phone, egg_type, dozens, total, date))
-    conn.commit()
+    cursor.execute("SELECT name FROM batches WHERE id=?", (batch_id,))
+    result = cursor.fetchone()
     conn.close()
-    print(f"Order placed successfully! Total price: KSH {total}. Status: pending payment.")
+    return result[0] if result else "Unknown"
 
-    # spent hens
-def sell_spent_hens():
-    # show only spent batches
-    conn = sqlite3.connect("layers.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, name, current_count FROM batches WHERE status = 'spent' AND current_count > 0")
-    spent = cursor.fetchall()
-    conn.close()
-
-    if not spent:
-        print("No spent batches available for sale.")
-        return  
+def delete_record(table, id_column, id_value):
     
-    print("\n--- Sell Spent Hens ---")
-    for b in spent:
-        print(f"{b[0]}. {b[1]} (Available: {b[2]} birds)")
-
-    batch_id = int(input("Select batch ID: "))
-    count = int(input("Enter number of birds sold: "))
-    price = float(input("Enter price per bird (KSH): "))
-    buyer = input("Enter buyer name: ") or "Walk-in"
-    date = get_current_date()
-
-    conn = sqlite3.connect("layers.db")
+    conn = get_connection()
     cursor = conn.cursor()
+    try:
+        cursor.execute(f"DELETE FROM {table} WHERE {id_column}=?", (id_value,))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.IntegrityError as e:
+        conn.close()
+        st.error(f"Cannot delete: {e}. This record has related entries.")
+        return False
 
-    # record the sale
-    cursor.execute("""
-                   INSERT INTO spent_sales (batch_id, date, count_sold, price_per_bird, buyer_name)
-                   VALUES (?, ?, ?, ?, ?)
-                   """, (batch_id, date, count, price, buyer))
-    
-    # update the current count of the batch
-    cursor.execute("UPDATE batches SET current_count = current_count - ? WHERE id = ?", (count, batch_id))
+#  STREAMLIT MAIN APP 
+def main():
+    st.set_page_config(page_title="Layer Farm Manager", layout="wide")
+    st.title("Layer Farm Management")
 
-    conn.commit()
-    conn.close()
-    print("Spent hens sale recorded successfully!")
+    setup_database()  
 
-def mark_batch_as_spent():
-    batches = get_batch_choices()
-    if not batches:
-        print("No active batches.")
-        return
-    
-    print("\n--- Mark Batch as Spent ---")
-    for b in batches:
-        print(f"{b[0]}. {b[1]} ({b[2]})")
+    #  sidebar navigation instead of CLI menu loop
+    menu = st.sidebar.radio(
+        "Navigation",
+        ["Dashboard", "Batches", "Egg Production", "Feed Usage", "Other Costs",
+         "Egg Sales", "Orders", "Spent Hens Sales"]
+    )
 
-    batch_id = int(input("Select batch ID to mark as spent: "))
+    # DASHBOARD 
+    if menu == "Dashboard":
+        st.header(" Dashboard")
+        conn = get_connection()
 
-    conn = sqlite3.connect("layers.db")
-    cursor = conn.cursor()
-    cursor.execute("UPDATE batches SET status = 'spent' WHERE id = ?", (batch_id,))
-    conn.commit()
-    conn.close()
-    print("Batch marked as spent successfully!")
+        # Active chickens
+        inventory_df = pd.read_sql_query(
+            "SELECT type, SUM(current_count) as count FROM batches WHERE status='active' GROUP BY type", conn
+        )
+        if not inventory_df.empty:
+            st.subheader("Active Chickens")
+            st.dataframe(inventory_df)
 
-# mainmenu(dashboard)
-def show_dashboard():
-    conn = sqlite3.connect("layers.db")
-    cursor = conn.cursor()
+        # Revenue & costs
+        revenue_df = pd.read_sql_query("SELECT SUM(quantity_dozen * price_per_dozen) as revenue FROM egg_sales", conn)
+        revenue = revenue_df.iloc[0]['revenue'] if not revenue_df.empty and revenue_df.iloc[0]['revenue'] else 0
 
-    print("\n" + "="*50)
-    print("CHICKEN FARM MANAGEMENT DASHBOARD")
-    print("="*50)
+        feed_cost_df = pd.read_sql_query("SELECT SUM(quantity_kg * unit_cost) as cost FROM feed_usage", conn)
+        feed_cost = feed_cost_df.iloc[0]['cost'] if not feed_cost_df.empty and feed_cost_df.iloc[0]['cost'] else 0
+        other_cost_df = pd.read_sql_query("SELECT SUM(amount) as cost FROM other_costs", conn)
+        other_cost = other_cost_df.iloc[0]['cost'] if not other_cost_df.empty and other_cost_df.iloc[0]['cost'] else 0
+        purchase_cost_df = pd.read_sql_query("SELECT SUM(purchase_cost) as cost FROM batches", conn)
+        purchase_cost = purchase_cost_df.iloc[0]['cost'] if not purchase_cost_df.empty and purchase_cost_df.iloc[0]['cost'] else 0
 
-    # 1. Current Inventory
-    cursor.execute("SELECT type, SUM(current_count) FROM batches WHERE status='active' GROUP BY type")
-    inventory = cursor.fetchall()
-    print("\n ACTIVE CHICKENS:")
-    for row in inventory:
-        print(f"   - {row[0].capitalize()}: {row[1] if row[1] else 0} birds")
+        total_costs = feed_cost + other_cost + purchase_cost
+        profit = revenue - total_costs
 
-    # 2. Total Revenue (Egg Sales)
-    cursor.execute("SELECT SUM(quantity_dozen * price_per_dozen) FROM egg_sales")
-    revenue = cursor.fetchone()[0] or 0
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Total Revenue (Egg Sales)", f"KSH {revenue:,.2f}")
+        col2.metric("Total Costs", f"KSH {total_costs:,.2f}")
+        col3.metric("Net Profit", f"KSH {profit:,.2f}")
+        col4.metric("Pending Orders", value=pd.read_sql_query("SELECT COUNT(*) FROM orders WHERE status='pending'", conn).iloc[0,0])
 
-        # 3. Total Costs
-    # a) Feed costs
-    cursor.execute("SELECT SUM(quantity_kg * unit_cost) FROM feed_usage")
-    feed_cost = cursor.fetchone()[0] or 0
-    # b) Other costs
-    cursor.execute("SELECT SUM(amount) FROM other_costs")
-    other_cost = cursor.fetchone()[0] or 0
-    # c) Initial purchase costs of ALL batches
-    cursor.execute("SELECT SUM(purchase_cost) FROM batches")
-    purchase_cost = cursor.fetchone()[0] or 0
-    
-    total_costs = feed_cost + other_cost + purchase_cost
-    profit = revenue - total_costs
-
-
-    print("\n FINANCIAL SUMMARY (KSH): ")
-    print(f"   - Total Revenue from Egg Sales: {revenue:,.2f}")
-    print(f"  - Total feed costs: {feed_cost:,.2f}")
-    print(f"  - Total other costs: {other_cost:,.2f}")
-    print(f"  - Initial stock costs: {purchase_cost:,.2f}")
-    print(f"  - ---------------------------------")
-    print(f"  - NET PROFIT: {profit:,.2f}")
-
-    # 4. Pending Customer Orders
-    cursor.execute("SELECT COUNT(*), SUM(total_price) FROM orders WHERE status='pending'")
-    pending = cursor.fetchone()
-    print(f"\n PENDING ORDERS: {pending[0]} (Total value: KSH {pending[1] if pending[1] else 0:,.2f})")
-
-    # 5. Recent egg production (last 7 days)
-    print("\n RECENT EGG PRODUCTION (last 7 days):")
-    cursor.execute('''
-        SELECT b.name, SUM(e.count_dozen) 
-        FROM egg_production e 
-        JOIN batches b ON e.batch_id = b.id 
-        WHERE e.date >= date('now', '-7 days')
-        GROUP BY b.name
-    ''')
-
-    recent = cursor.fetchall()
-    if recent:
-        for row in recent:
-            print(f"   - {row[0]}: {row[1]} dozens")
-    else:
-        print("   - No eggs recorded in the last 7 days.")
-
-    conn.close()
-    print("\n" + "="*50)
-
-    # MAINMENU
-def main_menu():
-    setup_database()
-
-    while True:
-        print("\n LAYER FARM MANAGER")
-        print("1. Add New Chicken Batch")
-        print("2. Record Daily Egg Production")
-        print("3. Record Feed Usage")
-        print("4. Add Other Cost (Medicine/Labour)")
-        print("5. Record Egg Sale (Revenue)")
-        print("6. Place Customer Order (Simulate App Order)")
-        print("7. Mark Batch as 'Spent'")
-        print("8. Sell Spent Hens")
-        print("9. Show Dashboard / Profit")
-        print("0. Exit")
-        
-        choice = input("Enter your choice: ")
-
-        if choice == '1':
-            add_batch()
-        elif choice == '2':
-            record_eggs()
-        elif choice == '3':
-            record_feed()
-        elif choice == '4':
-            add_other_cost()
-        elif choice == '5':
-            record_egg_sale()
-        elif choice == '6':
-            place_customer_order()
-        elif choice == '7':
-            mark_batch_as_spent()
-        elif choice == '8':
-            sell_spent_hens()
-        elif choice == '9':
-            show_dashboard()
-        elif choice == '0':
-            print("Exiting. Goodbye!")
-            break
+        # Recent production
+        st.subheader("Recent Egg Production (Last 7 days)")
+        recent_df = pd.read_sql_query("""
+            SELECT b.name, SUM(e.count_dozen) as dozens
+            FROM egg_production e
+            JOIN batches b ON e.batch_id = b.id
+            WHERE e.date >= date('now', '-7 days')
+            GROUP BY b.name
+        """, conn)
+        if not recent_df.empty:
+            st.dataframe(recent_df)
         else:
-            print("Invalid choice! Please try again.")
+            st.info("No eggs recorded in the last 7 days.")
+        conn.close()
 
-# run the main menu
+    # BATCHES 
+    elif menu == "Batches":
+        st.header("Batches")
+
+        # : Form for adding a batch function)
+        with st.expander("Add New Batch"):
+            with st.form("add_batch"):
+                name = st.text_input("Batch Name")
+                b_type = st.selectbox("Type", ["layers", "kienyeji"])
+                date = st.date_input("Date Acquired", value=datetime.date.today())
+                initial_count = st.number_input("Initial Count", min_value=1, step=1)
+                purchase_cost = st.number_input("Purchase Cost (KSH)", min_value=0.0, step=100.0)
+                submitted = st.form_submit_button("Add Batch")
+                if submitted:
+                    #  input validation 
+                    if not name:
+                        st.error("Batch name is required.")
+                    else:
+                        conn = get_connection()
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            INSERT INTO batches (name, type, date_acquired, initial_count, current_count, purchase_cost)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        """, (name, b_type, date.isoformat(), initial_count, initial_count, purchase_cost))
+                        conn.commit()
+                        conn.close()
+                        st.success("Batch added successfully!")
+                        st.rerun()
+
+        #  View all batches with search and status filter
+        st.subheader("All Batches")
+        search = st.text_input("Search by name", "")
+        status_filter = st.selectbox("Status", ["All", "active", "spent"])
+        df = get_all_batches()
+        if search:
+            df = df[df['name'].str.contains(search, case=False, na=False)]
+        if status_filter != "All":
+            df = df[df['status'] == status_filter]
+        st.dataframe(df, use_container_width=True)
+
+        #  Delete batch with dependency check 
+        st.subheader("Delete Batch")
+        batch_id_to_delete = st.number_input("Batch ID to delete", min_value=1, step=1)
+        if st.button("Delete Batch"):
+            # Check dependencies
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM egg_production WHERE batch_id=?", (batch_id_to_delete,))
+            egg_count = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM feed_usage WHERE batch_id=?", (batch_id_to_delete,))
+            feed_count = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM egg_sales WHERE batch_id=?", (batch_id_to_delete,))
+            sales_count = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM spent_sales WHERE batch_id=?", (batch_id_to_delete,))
+            spent_count = cursor.fetchone()[0]
+            conn.close()
+
+            if egg_count + feed_count + sales_count + spent_count > 0:
+                st.warning(f"This batch has {egg_count} egg records, {feed_count} feed records, {sales_count} sales, {spent_count} spent sales. Deleting will remove all related data (CASCADE).")
+                if st.checkbox("I understand, delete anyway"):
+                    conn = get_connection()
+                    cursor = conn.cursor()
+                    try:
+                        cursor.execute("DELETE FROM batches WHERE id=?", (batch_id_to_delete,))
+                        conn.commit()
+                        st.success("Batch deleted successfully.")
+                        st.rerun()
+                    except sqlite3.IntegrityError:
+                        st.error("Cannot delete due to foreign key constraints.")
+                    finally:
+                        conn.close()
+            else:
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM batches WHERE id=?", (batch_id_to_delete,))
+                conn.commit()
+                conn.close()
+                st.success("Batch deleted successfully.")
+                st.rerun()
+
+    # EGG PRODUCTION
+    elif menu == "Egg Production":
+        st.header("Egg Production")
+
+        with st.expander("Record Daily Eggs"):
+            df_batches = get_active_batches()
+            if df_batches.empty:
+                st.warning("No active batches. Add a batch first.")
+            else:
+                with st.form("add_eggs"):
+                    batch_id = st.selectbox("Batch", df_batches['id'], format_func=lambda x: f"{x} - {df_batches[df_batches['id']==x]['name'].iloc[0]}")
+                    date = st.date_input("Date", value=datetime.date.today())
+                    dozens = st.number_input("Dozens Collected", min_value=0, step=1)
+                    submitted = st.form_submit_button("Record")
+                    if submitted:
+                        #  validation 
+                        if dozens <= 0:
+                            st.error("Enter a positive number of dozens.")
+                        else:
+                            conn = get_connection()
+                            cursor = conn.cursor()
+                            cursor.execute("INSERT INTO egg_production (batch_id, date, count_dozen) VALUES (?, ?, ?)",
+                                           (batch_id, date.isoformat(), dozens))
+                            conn.commit()
+                            conn.close()
+                            st.success("Eggs recorded!")
+                            st.rerun()
+
+        st.subheader("Egg Production Records")
+        conn = get_connection()
+        df = pd.read_sql_query("""
+            SELECT e.id, b.name as batch, e.date, e.count_dozen
+            FROM egg_production e
+            JOIN batches b ON e.batch_id = b.id
+        """, conn)
+        conn.close()
+        if not df.empty:
+            # ADDED: batch filter and date range filter
+            batch_filter = st.selectbox("Filter by Batch", ["All"] + list(df['batch'].unique()))
+            date_range = st.date_input("Date Range", [])
+            if batch_filter != "All":
+                df = df[df['batch'] == batch_filter]
+            if len(date_range) == 2:
+                df = df[(df['date'] >= date_range[0].isoformat()) & (df['date'] <= date_range[1].isoformat())]
+            st.dataframe(df, use_container_width=True)
+
+            #  delete record
+            st.subheader("Delete Record")
+            rec_id = st.number_input("Record ID to delete", min_value=1, step=1)
+            if st.button("Delete Record"):
+                if delete_record("egg_production", "id", rec_id):
+                    st.success("Record deleted.")
+                    st.rerun()
+        else:
+            st.info("No records found.")
+
+    # FEED USAGE
+    elif menu == "Feed Usage":
+        st.header(" Feed Usage")
+
+        with st.expander("Record Feed Usage"):
+            df_batches = get_active_batches()
+            if df_batches.empty:
+                st.warning("No active batches.")
+            else:
+                with st.form("add_feed"):
+                    batch_id = st.selectbox("Batch", df_batches['id'], format_func=lambda x: f"{x} - {df_batches[df_batches['id']==x]['name'].iloc[0]}")
+                    date = st.date_input("Date", value=datetime.date.today())
+                    feed_type = st.text_input("Feed Type (e.g., layers mash)")
+                    quantity_kg = st.number_input("Quantity (kg)", min_value=0.0, step=0.5)
+                    unit_cost = st.number_input("Cost per kg (KSH)", min_value=0.0, step=1.0)
+                    submitted = st.form_submit_button("Record")
+                    if submitted:
+                        # validation
+                        if not feed_type or quantity_kg <= 0 or unit_cost <= 0:
+                            st.error("All fields are required and must be positive.")
+                        else:
+                            conn = get_connection()
+                            cursor = conn.cursor()
+                            cursor.execute("INSERT INTO feed_usage (batch_id, date, feed_type, quantity_kg, unit_cost) VALUES (?, ?, ?, ?, ?)",
+                                           (batch_id, date.isoformat(), feed_type, quantity_kg, unit_cost))
+                            conn.commit()
+                            conn.close()
+                            st.success("Feed usage recorded.")
+                            st.rerun()
+
+        st.subheader("Feed Usage Records")
+        conn = get_connection()
+        df = pd.read_sql_query("""
+            SELECT f.id, b.name as batch, f.date, f.feed_type, f.quantity_kg, f.unit_cost,
+                   (f.quantity_kg * f.unit_cost) as total_cost
+            FROM feed_usage f
+            JOIN batches b ON f.batch_id = b.id
+        """, conn)
+        conn.close()
+        if not df.empty:
+            # ADDED: search by feed type
+            search_feed = st.text_input("Search by feed type")
+            if search_feed:
+                df = df[df['feed_type'].str.contains(search_feed, case=False, na=False)]
+            st.dataframe(df, use_container_width=True)
+
+            rec_id = st.number_input("Feed Record ID to delete", min_value=1, step=1)
+            if st.button("Delete Feed Record"):
+                if delete_record("feed_usage", "id", rec_id):
+                    st.success("Deleted.")
+                    st.rerun()
+        else:
+            st.info("No feed records.")
+
+    # OTHER COSTS 
+    elif menu == "Other Costs":
+        st.header("Other Costs")
+
+        with st.expander("Add Other Cost"):
+            with st.form("add_cost"):
+                date = st.date_input("Date", value=datetime.date.today())
+                category = st.text_input("Category (e.g., vaccines, medications, labor)")
+                amount = st.number_input("Amount (KSH)", min_value=0.0, step=100.0)
+                submitted = st.form_submit_button("Add Cost")
+                if submitted:
+                    if not category or amount <= 0:
+                        st.error("Please fill all fields with positive amount.")
+                    else:
+                        conn = get_connection()
+                        cursor = conn.cursor()
+                        cursor.execute("INSERT INTO other_costs (date, category, amount) VALUES (?, ?, ?)",
+                                       (date.isoformat(), category, amount))
+                        conn.commit()
+                        conn.close()
+                        st.success("Cost added.")
+                        st.rerun()
+
+        st.subheader("Other Costs Records")
+        conn = get_connection()
+        df = pd.read_sql_query("SELECT * FROM other_costs", conn)
+        conn.close()
+        if not df.empty:
+            #  search by category
+            search_cost = st.text_input("Search by category")
+            if search_cost:
+                df = df[df['category'].str.contains(search_cost, case=False, na=False)]
+            st.dataframe(df, use_container_width=True)
+
+            rec_id = st.number_input("Cost Record ID to delete", min_value=1, step=1)
+            if st.button("Delete Cost Record"):
+                if delete_record("other_costs", "id", rec_id):
+                    st.success("Deleted.")
+                    st.rerun()
+        else:
+            st.info("No other costs recorded.")
+
+    #  EGG SALES
+    elif menu == "Egg Sales":
+        st.header("Egg Sales")
+
+        with st.expander("Record Egg Sale"):
+            df_batches = get_active_batches()
+            if df_batches.empty:
+                st.warning("No active batches.")
+            else:
+                with st.form("add_sale"):
+                    batch_id = st.selectbox("Batch", df_batches['id'], format_func=lambda x: f"{x} - {df_batches[df_batches['id']==x]['name'].iloc[0]}")
+                    date = st.date_input("Date", value=datetime.date.today())
+                    dozens = st.number_input("Dozens Sold", min_value=1, step=1)
+                    price = st.number_input("Price per Dozen (KSH)", min_value=0.0, step=10.0)
+                    customer = st.text_input("Customer Name (optional)")
+                    submitted = st.form_submit_button("Record Sale")
+                    if submitted:
+                        if dozens <= 0 or price <= 0:
+                            st.error("Enter positive values.")
+                        else:
+                            conn = get_connection()
+                            cursor = conn.cursor()
+                            cursor.execute("INSERT INTO egg_sales (batch_id, date, quantity_dozen, price_per_dozen, customer_name) VALUES (?, ?, ?, ?, ?)",
+                                           (batch_id, date.isoformat(), dozens, price, customer or "Walk-in"))
+                            conn.commit()
+                            conn.close()
+                            st.success("Sale recorded.")
+                            st.rerun()
+
+        st.subheader("Egg Sales Records")
+        conn = get_connection()
+        df = pd.read_sql_query("""
+            SELECT s.id, b.name as batch, s.date, s.quantity_dozen, s.price_per_dozen,
+                   (s.quantity_dozen * s.price_per_dozen) as total, s.customer_name
+            FROM egg_sales s
+            JOIN batches b ON s.batch_id = b.id
+        """, conn)
+        conn.close()
+        if not df.empty:
+            # search by customer
+            search_customer = st.text_input("Search by customer")
+            if search_customer:
+                df = df[df['customer_name'].str.contains(search_customer, case=False, na=False)]
+            st.dataframe(df, use_container_width=True)
+
+            rec_id = st.number_input("Sale Record ID to delete", min_value=1, step=1)
+            if st.button("Delete Sale Record"):
+                if delete_record("egg_sales", "id", rec_id):
+                    st.success("Deleted.")
+                    st.rerun()
+        else:
+            st.info("No sales records.")
+
+    # ORDERS
+    elif menu == "Orders":
+        st.header("Customer Orders")
+
+        with st.expander("Place New Order"):
+            with st.form("add_order"):
+                customer = st.text_input("Customer Name")
+                phone = st.text_input("Phone Number")
+                egg_type = st.selectbox("Egg Type", ["layers", "kienyeji"])
+                dozens = st.number_input("Quantity (dozens)", min_value=1, step=1)
+                price_per_dozen = 400 if egg_type == "layers" else 750
+                total_price = dozens * price_per_dozen
+                st.write(f"Total Price: KSH {total_price}")
+                submitted = st.form_submit_button("Place Order")
+                if submitted:
+                    if not customer or not phone or dozens <= 0:
+                        st.error("Please fill all fields.")
+                    else:
+                        conn = get_connection()
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            INSERT INTO orders (customer_name, phone, egg_type, quantity_dozen, total_price, order_date)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        """, (customer, phone, egg_type, dozens, total_price, datetime.date.today().isoformat()))
+                        conn.commit()
+                        conn.close()
+                        st.success(f"Order placed! Total: KSH {total_price}")
+                        st.rerun()
+
+        st.subheader("All Orders")
+        conn = get_connection()
+        df = pd.read_sql_query("SELECT * FROM orders", conn)
+        conn.close()
+        if not df.empty:
+            # ADDED: search by customer and status filter
+            search_order = st.text_input("Search by customer")
+            status_filter = st.selectbox("Status", ["All", "pending", "paid", "delivered"])
+            if search_order:
+                df = df[df['customer_name'].str.contains(search_order, case=False, na=False)]
+            if status_filter != "All":
+                df = df[df['status'] == status_filter]
+            st.dataframe(df, use_container_width=True)
+
+            # update order status 
+            st.subheader("Update Order Status")
+            order_id = st.number_input("Order ID", min_value=1, step=1)
+            new_status = st.selectbox("New Status", ["pending", "paid", "delivered"])
+            if st.button("Update Status"):
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute("UPDATE orders SET status=? WHERE id=?", (new_status, order_id))
+                conn.commit()
+                conn.close()
+                st.success("Order status updated.")
+                st.rerun()
+
+            rec_id = st.number_input("Order ID to delete", min_value=1, step=1, key="del_order")
+            if st.button("Delete Order"):
+                if delete_record("orders", "id", rec_id):
+                    st.success("Order deleted.")
+                    st.rerun()
+        else:
+            st.info("No orders.")
+
+    # SPENT HENS SALES 
+    elif menu == "Spent Hens Sales":
+        st.header("Spent Hens Sales")
+
+        conn = get_connection()
+        spent_df = pd.read_sql_query("SELECT id, name, current_count FROM batches WHERE status='spent' AND current_count>0", conn)
+        conn.close()
+        if spent_df.empty:
+            st.warning("No spent batches with available birds.")
+        else:
+            with st.expander("Sell Spent Hens"):
+                with st.form("sell_spent"):
+                    batch_id = st.selectbox("Batch", spent_df['id'], format_func=lambda x: f"{x} - {spent_df[spent_df['id']==x]['name'].iloc[0]} (Available: {spent_df[spent_df['id']==x]['current_count'].iloc[0]})")
+                    count = st.number_input("Number of birds sold", min_value=1, step=1)
+                    price = st.number_input("Price per bird (KSH)", min_value=0.0, step=50.0)
+                    buyer = st.text_input("Buyer Name (optional)")
+                    date = st.date_input("Date", value=datetime.date.today())
+                    submitted = st.form_submit_button("Record Sale")
+                    if submitted:
+                        # validation for available count
+                        available = spent_df[spent_df['id']==batch_id]['current_count'].iloc[0]
+                        if count > available:
+                            st.error(f"Only {available} birds available.")
+                        elif price <= 0:
+                            st.error("Price must be positive.")
+                        else:
+                            conn = get_connection()
+                            cursor = conn.cursor()
+                            cursor.execute("INSERT INTO spent_sales (batch_id, date, count_sold, price_per_bird, buyer_name) VALUES (?, ?, ?, ?, ?)",
+                                           (batch_id, date.isoformat(), count, price, buyer or "Walk-in"))
+                            cursor.execute("UPDATE batches SET current_count = current_count - ? WHERE id = ?", (count, batch_id))
+                            conn.commit()
+                            conn.close()
+                            st.success("Spent hen sale recorded.")
+                            st.rerun()
+
+        st.subheader("Spent Hens Sales Records")
+        conn = get_connection()
+        df = pd.read_sql_query("""
+            SELECT s.id, b.name as batch, s.date, s.count_sold, s.price_per_bird,
+                   (s.count_sold * s.price_per_bird) as total, s.buyer_name
+            FROM spent_sales s
+            JOIN batches b ON s.batch_id = b.id
+        """, conn)
+        conn.close()
+        if not df.empty:
+            # search by buyer
+            search_buyer = st.text_input("Search by buyer")
+            if search_buyer:
+                df = df[df['buyer_name'].str.contains(search_buyer, case=False, na=False)]
+            st.dataframe(df, use_container_width=True)
+
+            rec_id = st.number_input("Spent Sale Record ID to delete", min_value=1, step=1)
+            if st.button("Delete Spent Sale Record"):
+                if delete_record("spent_sales", "id", rec_id):
+                    st.success("Deleted. You may need to manually adjust batch count if needed.")
+                    st.rerun()
+        else:
+            st.info("No spent hen sales records.")
+
 if __name__ == "__main__":
-    main_menu()
-
-
-
-
-
-
-
-
-
-
+    main()
