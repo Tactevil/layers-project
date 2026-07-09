@@ -25,7 +25,7 @@ def setup_database():
             batch_id INTEGER,
             date TEXT,
             count_dozen INTEGER,
-            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE   -- CHANGED
+            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE
         )
     """)
     cursor.execute("""
@@ -36,7 +36,7 @@ def setup_database():
             feed_type TEXT,
             quantity_kg REAL,
             unit_cost REAL,
-            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE   -- CHANGED
+            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE
         )
     """)
     cursor.execute("""
@@ -55,7 +55,7 @@ def setup_database():
             quantity_dozen INTEGER,
             price_per_dozen REAL,
             customer_name TEXT,
-            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE   -- CHANGED
+            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE
         )
     """)
     cursor.execute("""
@@ -78,7 +78,7 @@ def setup_database():
             count_sold INTEGER,
             price_per_bird REAL,
             buyer_name TEXT,
-            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE   -- CHANGED
+            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE
         )
     """)
     conn.commit()
@@ -126,6 +126,7 @@ def delete_record(table, id_column, id_value):
         st.error(f"Cannot delete: {e}. This record has related entries.")
         return False
 
+# helper functions for update
 def fetch_record(table, id_column, id_value):
     conn = get_connection()
     cursor = conn.cursor()
@@ -221,7 +222,15 @@ def main():
     elif menu == "Batches":
         st.header("Batches")
 
-        # : Form for adding a batch function)
+        # SEARCH & FILTER 
+        st.subheader("Search & Filter")
+        col_search, col_status = st.columns(2)
+        with col_search:
+            search = st.text_input("Search by name", "")
+        with col_status:
+            status_filter = st.selectbox("Status", ["All", "active", "spent"])
+
+        #  Form for adding a batch function
         with st.expander("Add New Batch"):
             with st.form("add_batch"):
                 name = st.text_input("Batch Name")
@@ -248,8 +257,6 @@ def main():
 
         #  View all batches with search and status filter
         st.subheader("All Batches")
-        search = st.text_input("Search by name", "")
-        status_filter = st.selectbox("Status", ["All", "active", "spent"])
         df = get_all_batches()
         if search:
             df = df[df['name'].str.contains(search, case=False, na=False)]
@@ -257,7 +264,7 @@ def main():
             df = df[df['status'] == status_filter]
         st.dataframe(df, use_container_width=True)
 
-         # UPDATE BATCH 
+        # UPDATE BATCH
         st.subheader("Update Batch")
         batch_id_to_update = st.number_input("Batch ID to update", min_value=1, step=1, key="batch_update_id")
         if batch_id_to_update:
@@ -290,7 +297,7 @@ def main():
 
         #  Delete batch with dependency check 
         st.subheader("Delete Batch")
-        batch_id_to_delete = st.number_input("Batch ID to delete", min_value=1, step=1)
+        batch_id_to_delete = st.number_input("Batch ID to delete", min_value=1, step=1, key="batch_delete_id")
         if st.button("Delete Batch"):
             # Check dependencies
             conn = get_connection()
@@ -332,6 +339,18 @@ def main():
     elif menu == "Egg Production":
         st.header("Egg Production")
 
+        # SEARCH & FILTER
+        st.subheader("Search & Filter")
+        conn = get_connection()
+        all_batches = pd.read_sql_query("SELECT DISTINCT name FROM batches", conn)
+        conn.close()
+        batch_list = ["All"] + list(all_batches['name'])
+        col_batch, col_date = st.columns(2)
+        with col_batch:
+            batch_filter = st.selectbox("Filter by Batch", batch_list)
+        with col_date:
+            date_range = st.date_input("Date Range", [])
+
         with st.expander("Record Daily Eggs"):
             df_batches = get_active_batches()
             if df_batches.empty:
@@ -365,20 +384,49 @@ def main():
         """, conn)
         conn.close()
         if not df.empty:
-            # ADDED: batch filter and date range filter
-            batch_filter = st.selectbox("Filter by Batch", ["All"] + list(df['batch'].unique()))
-            date_range = st.date_input("Date Range", [])
+            # batch  and date range filter
             if batch_filter != "All":
                 df = df[df['batch'] == batch_filter]
             if len(date_range) == 2:
                 df = df[(df['date'] >= date_range[0].isoformat()) & (df['date'] <= date_range[1].isoformat())]
             st.dataframe(df, use_container_width=True)
 
+            # UPDATE EGG PRODUCTION 
+            st.subheader("Update Record")
+            rec_id = st.number_input("Record ID to update", min_value=1, step=1, key="egg_update_id")
+            if rec_id:
+                record = fetch_record("egg_production", "id", rec_id)
+                if record:
+                    with st.form("update_egg"):
+                        conn = get_connection()
+                        batches = pd.read_sql_query("SELECT id, name FROM batches", conn)
+                        conn.close()
+                        batch_options = batches['id'].tolist()
+                        batch_labels = {row['id']: f"{row['id']} - {row['name']}" for _, row in batches.iterrows()}
+                        new_batch = st.selectbox("Batch", batch_options, format_func=lambda x: batch_labels.get(x, x), index=batch_options.index(record['batch_id']))
+                        new_date = st.date_input("Date", value=datetime.date.fromisoformat(record['date']))
+                        new_dozens = st.number_input("Dozens Collected", value=record['count_dozen'], step=1)
+                        update_submitted = st.form_submit_button("Update Record")
+                        if update_submitted:
+                            if new_dozens <= 0:
+                                st.error("Dozens must be positive.")
+                            else:
+                                update_dict = {
+                                    'batch_id': new_batch,
+                                    'date': new_date.isoformat(),
+                                    'count_dozen': new_dozens
+                                }
+                                if update_record("egg_production", "id", rec_id, update_dict):
+                                    st.success("Record updated!")
+                                    st.rerun()
+                else:
+                    st.warning("Record ID not found.")
+
             #  delete record
             st.subheader("Delete Record")
-            rec_id = st.number_input("Record ID to delete", min_value=1, step=1)
+            rec_id_del = st.number_input("Record ID to delete", min_value=1, step=1)
             if st.button("Delete Record"):
-                if delete_record("egg_production", "id", rec_id):
+                if delete_record("egg_production", "id", rec_id_del):
                     st.success("Record deleted.")
                     st.rerun()
         else:
@@ -387,6 +435,10 @@ def main():
     # FEED USAGE
     elif menu == "Feed Usage":
         st.header(" Feed Usage")
+
+        # SEARCH
+        st.subheader("Search")
+        search_feed = st.text_input("Search by feed type")
 
         with st.expander("Record Feed Usage"):
             df_batches = get_active_batches()
@@ -424,15 +476,50 @@ def main():
         """, conn)
         conn.close()
         if not df.empty:
-            # ADDED: search by feed type
-            search_feed = st.text_input("Search by feed type")
+            #search by feed type
             if search_feed:
                 df = df[df['feed_type'].str.contains(search_feed, case=False, na=False)]
             st.dataframe(df, use_container_width=True)
 
-            rec_id = st.number_input("Feed Record ID to delete", min_value=1, step=1)
+            #UPDATE FEED 
+            st.subheader("Update Feed Record")
+            rec_id = st.number_input("Feed Record ID to update", min_value=1, step=1, key="feed_update_id")
+            if rec_id:
+                record = fetch_record("feed_usage", "id", rec_id)
+                if record:
+                    with st.form("update_feed"):
+                        conn = get_connection()
+                        batches = pd.read_sql_query("SELECT id, name FROM batches", conn)
+                        conn.close()
+                        batch_options = batches['id'].tolist()
+                        batch_labels = {row['id']: f"{row['id']} - {row['name']}" for _, row in batches.iterrows()}
+                        new_batch = st.selectbox("Batch", batch_options, format_func=lambda x: batch_labels.get(x, x), index=batch_options.index(record['batch_id']))
+                        new_date = st.date_input("Date", value=datetime.date.fromisoformat(record['date']))
+                        new_feed_type = st.text_input("Feed Type", value=record['feed_type'])
+                        new_quantity = st.number_input("Quantity (kg)", value=record['quantity_kg'], step=0.5)
+                        new_unit_cost = st.number_input("Cost per kg (KSH)", value=record['unit_cost'], step=1.0)
+                        update_submitted = st.form_submit_button("Update Record")
+                        if update_submitted:
+                            if not new_feed_type or new_quantity <= 0 or new_unit_cost <= 0:
+                                st.error("All fields must be filled with positive numbers.")
+                            else:
+                                update_dict = {
+                                    'batch_id': new_batch,
+                                    'date': new_date.isoformat(),
+                                    'feed_type': new_feed_type,
+                                    'quantity_kg': new_quantity,
+                                    'unit_cost': new_unit_cost
+                                }
+                                if update_record("feed_usage", "id", rec_id, update_dict):
+                                    st.success("Feed record updated!")
+                                    st.rerun()
+                else:
+                    st.warning("Record ID not found.")
+
+            # delete record
+            rec_id_del = st.number_input("Feed Record ID to delete", min_value=1, step=1)
             if st.button("Delete Feed Record"):
-                if delete_record("feed_usage", "id", rec_id):
+                if delete_record("feed_usage", "id", rec_id_del):
                     st.success("Deleted.")
                     st.rerun()
         else:
@@ -441,6 +528,10 @@ def main():
     # OTHER COSTS 
     elif menu == "Other Costs":
         st.header("Other Costs")
+
+        # SEARCH
+        st.subheader("Search")
+        search_cost = st.text_input("Search by category")
 
         with st.expander("Add Other Cost"):
             with st.form("add_cost"):
@@ -467,14 +558,40 @@ def main():
         conn.close()
         if not df.empty:
             #  search by category
-            search_cost = st.text_input("Search by category")
             if search_cost:
                 df = df[df['category'].str.contains(search_cost, case=False, na=False)]
             st.dataframe(df, use_container_width=True)
 
-            rec_id = st.number_input("Cost Record ID to delete", min_value=1, step=1)
+            # UPDATE OTHER COST
+            st.subheader("Update Cost Record")
+            rec_id = st.number_input("Cost Record ID to update", min_value=1, step=1, key="cost_update_id")
+            if rec_id:
+                record = fetch_record("other_costs", "id", rec_id)
+                if record:
+                    with st.form("update_cost"):
+                        new_date = st.date_input("Date", value=datetime.date.fromisoformat(record['date']))
+                        new_category = st.text_input("Category", value=record['category'])
+                        new_amount = st.number_input("Amount (KSH)", value=record['amount'], step=100.0)
+                        update_submitted = st.form_submit_button("Update Record")
+                        if update_submitted:
+                            if not new_category or new_amount <= 0:
+                                st.error("Category and positive amount required.")
+                            else:
+                                update_dict = {
+                                    'date': new_date.isoformat(),
+                                    'category': new_category,
+                                    'amount': new_amount
+                                }
+                                if update_record("other_costs", "id", rec_id, update_dict):
+                                    st.success("Cost record updated!")
+                                    st.rerun()
+                else:
+                    st.warning("Record ID not found.")
+
+            # delete record
+            rec_id_del = st.number_input("Cost Record ID to delete", min_value=1, step=1)
             if st.button("Delete Cost Record"):
-                if delete_record("other_costs", "id", rec_id):
+                if delete_record("other_costs", "id", rec_id_del):
                     st.success("Deleted.")
                     st.rerun()
         else:
@@ -483,6 +600,10 @@ def main():
     #  EGG SALES
     elif menu == "Egg Sales":
         st.header("Egg Sales")
+
+        # SEARCH
+        st.subheader("Search")
+        search_customer = st.text_input("Search by customer")
 
         with st.expander("Record Egg Sale"):
             df_batches = get_active_batches()
@@ -519,15 +640,50 @@ def main():
         """, conn)
         conn.close()
         if not df.empty:
-            # search by customer
-            search_customer = st.text_input("Search by customer")
+            # search by customer 
             if search_customer:
                 df = df[df['customer_name'].str.contains(search_customer, case=False, na=False)]
             st.dataframe(df, use_container_width=True)
 
-            rec_id = st.number_input("Sale Record ID to delete", min_value=1, step=1)
+            # UPDATE EGG SALE
+            st.subheader("Update Sale Record")
+            rec_id = st.number_input("Sale Record ID to update", min_value=1, step=1, key="sale_update_id")
+            if rec_id:
+                record = fetch_record("egg_sales", "id", rec_id)
+                if record:
+                    with st.form("update_sale"):
+                        conn = get_connection()
+                        batches = pd.read_sql_query("SELECT id, name FROM batches", conn)
+                        conn.close()
+                        batch_options = batches['id'].tolist()
+                        batch_labels = {row['id']: f"{row['id']} - {row['name']}" for _, row in batches.iterrows()}
+                        new_batch = st.selectbox("Batch", batch_options, format_func=lambda x: batch_labels.get(x, x), index=batch_options.index(record['batch_id']))
+                        new_date = st.date_input("Date", value=datetime.date.fromisoformat(record['date']))
+                        new_dozens = st.number_input("Dozens Sold", value=record['quantity_dozen'], step=1)
+                        new_price = st.number_input("Price per Dozen (KSH)", value=record['price_per_dozen'], step=10.0)
+                        new_customer = st.text_input("Customer Name", value=record['customer_name'] or "")
+                        update_submitted = st.form_submit_button("Update Record")
+                        if update_submitted:
+                            if new_dozens <= 0 or new_price <= 0:
+                                st.error("Positive values required.")
+                            else:
+                                update_dict = {
+                                    'batch_id': new_batch,
+                                    'date': new_date.isoformat(),
+                                    'quantity_dozen': new_dozens,
+                                    'price_per_dozen': new_price,
+                                    'customer_name': new_customer or "Walk-in"
+                                }
+                                if update_record("egg_sales", "id", rec_id, update_dict):
+                                    st.success("Sale record updated!")
+                                    st.rerun()
+                else:
+                    st.warning("Record ID not found.")
+
+            # delete record
+            rec_id_del = st.number_input("Sale Record ID to delete", min_value=1, step=1)
             if st.button("Delete Sale Record"):
-                if delete_record("egg_sales", "id", rec_id):
+                if delete_record("egg_sales", "id", rec_id_del):
                     st.success("Deleted.")
                     st.rerun()
         else:
@@ -536,6 +692,14 @@ def main():
     # ORDERS
     elif menu == "Orders":
         st.header("Customer Orders")
+
+        # SEARCH & FILTER
+        st.subheader("Search & Filter")
+        col_search_order, col_status_order = st.columns(2)
+        with col_search_order:
+            search_order = st.text_input("Search by customer")
+        with col_status_order:
+            status_filter_order = st.selectbox("Status", ["All", "pending", "paid", "delivered"])
 
         with st.expander("Place New Order"):
             with st.form("add_order"):
@@ -567,31 +731,51 @@ def main():
         df = pd.read_sql_query("SELECT * FROM orders", conn)
         conn.close()
         if not df.empty:
-            # ADDED: search by customer and status filter
-            search_order = st.text_input("Search by customer")
-            status_filter = st.selectbox("Status", ["All", "pending", "paid", "delivered"])
+            # search by customer and status filter
             if search_order:
                 df = df[df['customer_name'].str.contains(search_order, case=False, na=False)]
-            if status_filter != "All":
-                df = df[df['status'] == status_filter]
+            if status_filter_order != "All":
+                df = df[df['status'] == status_filter_order]
             st.dataframe(df, use_container_width=True)
 
-            # update order status 
-            st.subheader("Update Order Status")
-            order_id = st.number_input("Order ID", min_value=1, step=1)
-            new_status = st.selectbox("New Status", ["pending", "paid", "delivered"])
-            if st.button("Update Status"):
-                conn = get_connection()
-                cursor = conn.cursor()
-                cursor.execute("UPDATE orders SET status=? WHERE id=?", (new_status, order_id))
-                conn.commit()
-                conn.close()
-                st.success("Order status updated.")
-                st.rerun()
+            #  UPDATE ORDER
+            st.subheader("Update Order")
+            order_id = st.number_input("Order ID", min_value=1, step=1, key="order_update_id")
+            if order_id:
+                record = fetch_record("orders", "id", order_id)
+                if record:
+                    with st.form("update_order"):
+                        new_customer = st.text_input("Customer Name", value=record['customer_name'])
+                        new_phone = st.text_input("Phone", value=record['phone'])
+                        new_egg_type = st.selectbox("Egg Type", ["layers", "kienyeji"], index=0 if record['egg_type']=="layers" else 1)
+                        new_dozens = st.number_input("Quantity (dozens)", value=record['quantity_dozen'], step=1)
+                        price_per_dozen_new = 400 if new_egg_type == "layers" else 750
+                        new_total = new_dozens * price_per_dozen_new
+                        st.write(f"New Total Price: KSH {new_total}")
+                        new_status = st.selectbox("Status", ["pending", "paid", "delivered"], index=["pending","paid","delivered"].index(record['status']))
+                        update_submitted = st.form_submit_button("Update Order")
+                        if update_submitted:
+                            if not new_customer or not new_phone or new_dozens <= 0:
+                                st.error("All fields required and quantity positive.")
+                            else:
+                                update_dict = {
+                                    'customer_name': new_customer,
+                                    'phone': new_phone,
+                                    'egg_type': new_egg_type,
+                                    'quantity_dozen': new_dozens,
+                                    'total_price': new_total,
+                                    'status': new_status
+                                }
+                                if update_record("orders", "id", order_id, update_dict):
+                                    st.success("Order updated!")
+                                    st.rerun()
+                else:
+                    st.warning("Order ID not found.")
 
-            rec_id = st.number_input("Order ID to delete", min_value=1, step=1, key="del_order")
+            # delete record
+            rec_id_del = st.number_input("Order ID to delete", min_value=1, step=1, key="del_order")
             if st.button("Delete Order"):
-                if delete_record("orders", "id", rec_id):
+                if delete_record("orders", "id", rec_id_del):
                     st.success("Order deleted.")
                     st.rerun()
         else:
@@ -600,6 +784,10 @@ def main():
     # SPENT HENS SALES 
     elif menu == "Spent Hens Sales":
         st.header("Spent Hens Sales")
+
+        # SEARCH
+        st.subheader("Search")
+        search_buyer = st.text_input("Search by buyer")
 
         conn = get_connection()
         spent_df = pd.read_sql_query("SELECT id, name, current_count FROM batches WHERE status='spent' AND current_count>0", conn)
@@ -644,14 +832,49 @@ def main():
         conn.close()
         if not df.empty:
             # search by buyer
-            search_buyer = st.text_input("Search by buyer")
             if search_buyer:
                 df = df[df['buyer_name'].str.contains(search_buyer, case=False, na=False)]
             st.dataframe(df, use_container_width=True)
 
-            rec_id = st.number_input("Spent Sale Record ID to delete", min_value=1, step=1)
+            # UPDATE SPENT SALE
+            st.subheader("Update Spent Sale Record")
+            rec_id = st.number_input("Spent Sale Record ID to update", min_value=1, step=1, key="spent_update_id")
+            if rec_id:
+                record = fetch_record("spent_sales", "id", rec_id)
+                if record:
+                    with st.form("update_spent"):
+                        conn = get_connection()
+                        batches = pd.read_sql_query("SELECT id, name FROM batches", conn)
+                        conn.close()
+                        batch_options = batches['id'].tolist()
+                        batch_labels = {row['id']: f"{row['id']} - {row['name']}" for _, row in batches.iterrows()}
+                        new_batch = st.selectbox("Batch", batch_options, format_func=lambda x: batch_labels.get(x, x), index=batch_options.index(record['batch_id']))
+                        new_date = st.date_input("Date", value=datetime.date.fromisoformat(record['date']))
+                        new_count = st.number_input("Number of birds sold", value=record['count_sold'], step=1)
+                        new_price = st.number_input("Price per bird (KSH)", value=record['price_per_bird'], step=50.0)
+                        new_buyer = st.text_input("Buyer Name", value=record['buyer_name'] or "")
+                        update_submitted = st.form_submit_button("Update Record")
+                        if update_submitted:
+                            if new_count <= 0 or new_price <= 0:
+                                st.error("Positive values required.")
+                            else:
+                                update_dict = {
+                                    'batch_id': new_batch,
+                                    'date': new_date.isoformat(),
+                                    'count_sold': new_count,
+                                    'price_per_bird': new_price,
+                                    'buyer_name': new_buyer or "Walk-in"
+                                }
+                                if update_record("spent_sales", "id", rec_id, update_dict):
+                                    st.success("Spent sale record updated! (Batch count not automatically adjusted – please adjust manually if needed.)")
+                                    st.rerun()
+                else:
+                    st.warning("Record ID not found.")
+
+            # delete record
+            rec_id_del = st.number_input("Spent Sale Record ID to delete", min_value=1, step=1)
             if st.button("Delete Spent Sale Record"):
-                if delete_record("spent_sales", "id", rec_id):
+                if delete_record("spent_sales", "id", rec_id_del):
                     st.success("Deleted. You may need to manually adjust batch count if needed.")
                     st.rerun()
         else:
