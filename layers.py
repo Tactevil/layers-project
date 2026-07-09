@@ -126,6 +126,35 @@ def delete_record(table, id_column, id_value):
         st.error(f"Cannot delete: {e}. This record has related entries.")
         return False
 
+def fetch_record(table, id_column, id_value):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(f"SELECT * FROM {table} WHERE {id_column}=?", (id_value,))
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        columns = [desc[0] for desc in cursor.description]
+        return dict(zip(columns, row))
+    return None
+
+def update_record(table, id_column, id_value, update_dict):
+    if not update_dict:
+        return False
+    conn = get_connection()
+    cursor = conn.cursor()
+    set_clause = ", ".join([f"{col}=?" for col in update_dict.keys()])
+    values = list(update_dict.values()) + [id_value]
+    query = f"UPDATE {table} SET {set_clause} WHERE {id_column}=?"
+    try:
+        cursor.execute(query, values)
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        conn.close()
+        st.error(f"Update failed: {e}")
+        return False
+
 #  STREAMLIT MAIN APP 
 def main():
     st.set_page_config(page_title="Layer Farm Manager", layout="wide")
@@ -227,6 +256,37 @@ def main():
         if status_filter != "All":
             df = df[df['status'] == status_filter]
         st.dataframe(df, use_container_width=True)
+
+         # UPDATE BATCH 
+        st.subheader("Update Batch")
+        batch_id_to_update = st.number_input("Batch ID to update", min_value=1, step=1, key="batch_update_id")
+        if batch_id_to_update:
+            record = fetch_record("batches", "id", batch_id_to_update)
+            if record:
+                with st.form("update_batch"):
+                    new_name = st.text_input("Name", value=record['name'])
+                    new_type = st.selectbox("Type", ["layers", "kienyeji"], index=0 if record['type']=="layers" else 1)
+                    new_date = st.date_input("Date Acquired", value=datetime.date.fromisoformat(record['date_acquired']))
+                    new_initial = st.number_input("Initial Count", value=record['initial_count'], step=1)
+                    new_current = st.number_input("Current Count", value=record['current_count'], step=1)
+                    new_cost = st.number_input("Purchase Cost (KSH)", value=record['purchase_cost'], step=100.0)
+                    new_status = st.selectbox("Status", ["active", "spent"], index=0 if record['status']=="active" else 1)
+                    update_submitted = st.form_submit_button("Update Batch")
+                    if update_submitted:
+                        update_dict = {
+                            'name': new_name,
+                            'type': new_type,
+                            'date_acquired': new_date.isoformat(),
+                            'initial_count': new_initial,
+                            'current_count': new_current,
+                            'purchase_cost': new_cost,
+                            'status': new_status
+                        }
+                        if update_record("batches", "id", batch_id_to_update, update_dict):
+                            st.success("Batch updated successfully!")
+                            st.rerun()
+            else:
+                st.warning("Batch ID not found.")
 
         #  Delete batch with dependency check 
         st.subheader("Delete Batch")
