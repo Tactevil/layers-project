@@ -25,7 +25,7 @@ def setup_database():
             batch_id INTEGER,
             date TEXT,
             count_dozen INTEGER,
-            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE   -- CHANGED
+            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE
         )
     """)
     cursor.execute("""
@@ -36,7 +36,7 @@ def setup_database():
             feed_type TEXT,
             quantity_kg REAL,
             unit_cost REAL,
-            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE   -- CHANGED
+            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE
         )
     """)
     cursor.execute("""
@@ -55,7 +55,7 @@ def setup_database():
             quantity_dozen INTEGER,
             price_per_dozen REAL,
             customer_name TEXT,
-            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE   -- CHANGED
+            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE
         )
     """)
     cursor.execute("""
@@ -78,7 +78,7 @@ def setup_database():
             count_sold INTEGER,
             price_per_bird REAL,
             buyer_name TEXT,
-            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE   -- CHANGED
+            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE
         )
     """)
     conn.commit()
@@ -156,13 +156,12 @@ def update_record(table, id_column, id_value, update_dict):
         st.error(f"Update failed: {e}")
         return False
 
-# ---- NEW: safe date parser ----
+#  safe date parser 
 def safe_parse_date(date_str):
-    """Convert a date string (any common format) to a datetime.date object."""
     try:
         return pd.to_datetime(date_str).date()
     except Exception:
-        # fallback: try to parse manually if pd.to_datetime fails
+        #  try to parse manually if pd.to_datetime fails
         return datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
 
 #  STREAMLIT MAIN APP 
@@ -210,7 +209,7 @@ def main():
         col1.metric("Total Revenue (Egg Sales)", f"KSH {revenue:,.2f}")
         col2.metric("Total Costs", f"KSH {total_costs:,.2f}")
         col3.metric("Net Profit", f"KSH {profit:,.2f}")
-        # FIX: safer pending orders count
+        # safer pending orders count
         pending_count = pd.read_sql_query("SELECT COUNT(*) FROM orders WHERE status='pending'", conn).iloc[0,0]
         col4.metric("Pending Orders", value=pending_count)
 
@@ -233,7 +232,7 @@ def main():
     elif menu == "Batches":
         st.header("Batches")
 
-        # ---- SEARCH & FILTER (moved to top) ----
+        #  SEARCH & FILTER
         st.subheader("Search & Filter")
         col_search, col_status = st.columns(2)
         with col_search:
@@ -275,7 +274,7 @@ def main():
             df = df[df['status'] == status_filter]
         st.dataframe(df, use_container_width=True)
 
-        # ---- UPDATE BATCH (NEW) ----
+        # UPDATE BATCH
         st.subheader("Update Batch")
         batch_id_to_update = st.number_input("Batch ID to update", min_value=1, step=1, key="batch_update_id")
         if batch_id_to_update:
@@ -350,7 +349,7 @@ def main():
     elif menu == "Egg Production":
         st.header("Egg Production")
 
-        # ---- SEARCH & FILTER (moved to top) ----
+        # SEARCH & FILTER
         st.subheader("Search & Filter")
         conn = get_connection()
         all_batches = pd.read_sql_query("SELECT DISTINCT name FROM batches", conn)
@@ -395,14 +394,14 @@ def main():
         """, conn)
         conn.close()
         if not df.empty:
-            # ADDED: batch filter and date range filter (now at top)
+            #batch filter and date range filter
             if batch_filter != "All":
                 df = df[df['batch'] == batch_filter]
             if len(date_range) == 2:
                 df = df[(df['date'] >= date_range[0].isoformat()) & (df['date'] <= date_range[1].isoformat())]
             st.dataframe(df, use_container_width=True)
 
-            # ---- UPDATE EGG PRODUCTION (NEW) ----
+            # UPDATE EGG PRODUCTION
             st.subheader("Update Record")
             rec_id = st.number_input("Record ID to update", min_value=1, step=1, key="egg_update_id")
             if rec_id:
@@ -447,7 +446,7 @@ def main():
     elif menu == "Feed Usage":
         st.header(" Feed Usage")
 
-        # ---- SEARCH (moved to top) ----
+        # SEARCH
         st.subheader("Search")
         search_feed = st.text_input("Search by feed type")
 
@@ -487,12 +486,12 @@ def main():
         """, conn)
         conn.close()
         if not df.empty:
-            # ADDED: search by feed type (now at top)
+            # search by feed type
             if search_feed:
                 df = df[df['feed_type'].str.contains(search_feed, case=False, na=False)]
             st.dataframe(df, use_container_width=True)
 
-            # ---- UPDATE FEED (NEW) ----
+            #UPDATE FEED 
             st.subheader("Update Feed Record")
             rec_id = st.number_input("Feed Record ID to update", min_value=1, step=1, key="feed_update_id")
             if rec_id:
@@ -540,7 +539,7 @@ def main():
     elif menu == "Other Costs":
         st.header("Other Costs")
 
-        # ---- SEARCH (moved to top) ----
+        # SEARCH 
         st.subheader("Search")
         search_cost = st.text_input("Search by category")
 
@@ -568,12 +567,12 @@ def main():
         df = pd.read_sql_query("SELECT * FROM other_costs", conn)
         conn.close()
         if not df.empty:
-            #  search by category (now at top)
+            #  search by category
             if search_cost:
                 df = df[df['category'].str.contains(search_cost, case=False, na=False)]
             st.dataframe(df, use_container_width=True)
 
-            # ---- UPDATE OTHER COST (NEW) ----
+            # UPDATE OTHER COST
             st.subheader("Update Cost Record")
             rec_id = st.number_input("Cost Record ID to update", min_value=1, step=1, key="cost_update_id")
             if rec_id:
@@ -612,7 +611,7 @@ def main():
     elif menu == "Egg Sales":
         st.header("Egg Sales")
 
-        # ---- SEARCH (moved to top) ----
+        #  SEARCH
         st.subheader("Search")
         search_customer = st.text_input("Search by customer")
 
@@ -651,12 +650,12 @@ def main():
         """, conn)
         conn.close()
         if not df.empty:
-            # search by customer (now at top)
+            # search by customer
             if search_customer:
                 df = df[df['customer_name'].str.contains(search_customer, case=False, na=False)]
             st.dataframe(df, use_container_width=True)
 
-            # ---- UPDATE EGG SALE (NEW) ----
+            # UPDATE EGG SALE
             st.subheader("Update Sale Record")
             rec_id = st.number_input("Sale Record ID to update", min_value=1, step=1, key="sale_update_id")
             if rec_id:
@@ -704,7 +703,7 @@ def main():
     elif menu == "Orders":
         st.header("Customer Orders")
 
-        # ---- SEARCH & FILTER (moved to top) ----
+        # SEARCH & FILTER
         st.subheader("Search & Filter")
         col_search_order, col_status_order = st.columns(2)
         with col_search_order:
@@ -742,14 +741,14 @@ def main():
         df = pd.read_sql_query("SELECT * FROM orders", conn)
         conn.close()
         if not df.empty:
-            # ADDED: search by customer and status filter (now at top)
+            # search by customer and status filter
             if search_order:
                 df = df[df['customer_name'].str.contains(search_order, case=False, na=False)]
             if status_filter_order != "All":
                 df = df[df['status'] == status_filter_order]
             st.dataframe(df, use_container_width=True)
 
-            # ---- UPDATE ORDER (full, replaces old status update) ----
+            #UPDATE ORDER
             st.subheader("Update Order")
             order_id = st.number_input("Order ID", min_value=1, step=1, key="order_update_id")
             if order_id:
@@ -796,7 +795,7 @@ def main():
     elif menu == "Spent Hens Sales":
         st.header("Spent Hens Sales")
 
-        # ---- SEARCH (moved to top) ----
+        # SEARCH 
         st.subheader("Search")
         search_buyer = st.text_input("Search by buyer")
 
@@ -842,12 +841,12 @@ def main():
         """, conn)
         conn.close()
         if not df.empty:
-            # search by buyer (now at top)
+            # search by buyer
             if search_buyer:
                 df = df[df['buyer_name'].str.contains(search_buyer, case=False, na=False)]
             st.dataframe(df, use_container_width=True)
 
-            # ---- UPDATE SPENT SALE (NEW) ----
+            # UPDATE SPENT SALE
             st.subheader("Update Spent Sale Record")
             rec_id = st.number_input("Spent Sale Record ID to update", min_value=1, step=1, key="spent_update_id")
             if rec_id:
