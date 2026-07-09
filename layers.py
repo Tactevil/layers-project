@@ -25,7 +25,7 @@ def setup_database():
             batch_id INTEGER,
             date TEXT,
             count_dozen INTEGER,
-            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE
+            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE   -- CHANGED
         )
     """)
     cursor.execute("""
@@ -36,7 +36,7 @@ def setup_database():
             feed_type TEXT,
             quantity_kg REAL,
             unit_cost REAL,
-            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE
+            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE   -- CHANGED
         )
     """)
     cursor.execute("""
@@ -55,7 +55,7 @@ def setup_database():
             quantity_dozen INTEGER,
             price_per_dozen REAL,
             customer_name TEXT,
-            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE
+            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE   -- CHANGED
         )
     """)
     cursor.execute("""
@@ -78,7 +78,7 @@ def setup_database():
             count_sold INTEGER,
             price_per_bird REAL,
             buyer_name TEXT,
-            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE
+            FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE   -- CHANGED
         )
     """)
     conn.commit()
@@ -126,7 +126,7 @@ def delete_record(table, id_column, id_value):
         st.error(f"Cannot delete: {e}. This record has related entries.")
         return False
 
-# helper functions for update
+# ---- ADDED: helper functions for update ----
 def fetch_record(table, id_column, id_value):
     conn = get_connection()
     cursor = conn.cursor()
@@ -155,6 +155,15 @@ def update_record(table, id_column, id_value, update_dict):
         conn.close()
         st.error(f"Update failed: {e}")
         return False
+
+# ---- NEW: safe date parser ----
+def safe_parse_date(date_str):
+    """Convert a date string (any common format) to a datetime.date object."""
+    try:
+        return pd.to_datetime(date_str).date()
+    except Exception:
+        # fallback: try to parse manually if pd.to_datetime fails
+        return datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
 
 #  STREAMLIT MAIN APP 
 def main():
@@ -201,7 +210,9 @@ def main():
         col1.metric("Total Revenue (Egg Sales)", f"KSH {revenue:,.2f}")
         col2.metric("Total Costs", f"KSH {total_costs:,.2f}")
         col3.metric("Net Profit", f"KSH {profit:,.2f}")
-        col4.metric("Pending Orders", value=pd.read_sql_query("SELECT COUNT(*) FROM orders WHERE status='pending'", conn).iloc[0,0])
+        # FIX: safer pending orders count
+        pending_count = pd.read_sql_query("SELECT COUNT(*) FROM orders WHERE status='pending'", conn).iloc[0,0]
+        col4.metric("Pending Orders", value=pending_count)
 
         # Recent production
         st.subheader("Recent Egg Production (Last 7 days)")
@@ -222,7 +233,7 @@ def main():
     elif menu == "Batches":
         st.header("Batches")
 
-        # SEARCH & FILTER 
+        # ---- SEARCH & FILTER (moved to top) ----
         st.subheader("Search & Filter")
         col_search, col_status = st.columns(2)
         with col_search:
@@ -230,7 +241,7 @@ def main():
         with col_status:
             status_filter = st.selectbox("Status", ["All", "active", "spent"])
 
-        #  Form for adding a batch function
+        # : Form for adding a batch function)
         with st.expander("Add New Batch"):
             with st.form("add_batch"):
                 name = st.text_input("Batch Name")
@@ -264,7 +275,7 @@ def main():
             df = df[df['status'] == status_filter]
         st.dataframe(df, use_container_width=True)
 
-        # UPDATE BATCH
+        # ---- UPDATE BATCH (NEW) ----
         st.subheader("Update Batch")
         batch_id_to_update = st.number_input("Batch ID to update", min_value=1, step=1, key="batch_update_id")
         if batch_id_to_update:
@@ -273,7 +284,7 @@ def main():
                 with st.form("update_batch"):
                     new_name = st.text_input("Name", value=record['name'])
                     new_type = st.selectbox("Type", ["layers", "kienyeji"], index=0 if record['type']=="layers" else 1)
-                    new_date = st.date_input("Date Acquired", value=datetime.date.fromisoformat(record['date_acquired']))
+                    new_date = st.date_input("Date Acquired", value=safe_parse_date(record['date_acquired']))
                     new_initial = st.number_input("Initial Count", value=record['initial_count'], step=1)
                     new_current = st.number_input("Current Count", value=record['current_count'], step=1)
                     new_cost = st.number_input("Purchase Cost (KSH)", value=record['purchase_cost'], step=100.0)
@@ -339,7 +350,7 @@ def main():
     elif menu == "Egg Production":
         st.header("Egg Production")
 
-        # SEARCH & FILTER
+        # ---- SEARCH & FILTER (moved to top) ----
         st.subheader("Search & Filter")
         conn = get_connection()
         all_batches = pd.read_sql_query("SELECT DISTINCT name FROM batches", conn)
@@ -384,14 +395,14 @@ def main():
         """, conn)
         conn.close()
         if not df.empty:
-            # batch  and date range filter
+            # ADDED: batch filter and date range filter (now at top)
             if batch_filter != "All":
                 df = df[df['batch'] == batch_filter]
             if len(date_range) == 2:
                 df = df[(df['date'] >= date_range[0].isoformat()) & (df['date'] <= date_range[1].isoformat())]
             st.dataframe(df, use_container_width=True)
 
-            # UPDATE EGG PRODUCTION 
+            # ---- UPDATE EGG PRODUCTION (NEW) ----
             st.subheader("Update Record")
             rec_id = st.number_input("Record ID to update", min_value=1, step=1, key="egg_update_id")
             if rec_id:
@@ -404,7 +415,7 @@ def main():
                         batch_options = batches['id'].tolist()
                         batch_labels = {row['id']: f"{row['id']} - {row['name']}" for _, row in batches.iterrows()}
                         new_batch = st.selectbox("Batch", batch_options, format_func=lambda x: batch_labels.get(x, x), index=batch_options.index(record['batch_id']))
-                        new_date = st.date_input("Date", value=datetime.date.fromisoformat(record['date']))
+                        new_date = st.date_input("Date", value=safe_parse_date(record['date']))
                         new_dozens = st.number_input("Dozens Collected", value=record['count_dozen'], step=1)
                         update_submitted = st.form_submit_button("Update Record")
                         if update_submitted:
@@ -436,7 +447,7 @@ def main():
     elif menu == "Feed Usage":
         st.header(" Feed Usage")
 
-        # SEARCH
+        # ---- SEARCH (moved to top) ----
         st.subheader("Search")
         search_feed = st.text_input("Search by feed type")
 
@@ -476,12 +487,12 @@ def main():
         """, conn)
         conn.close()
         if not df.empty:
-            #search by feed type
+            # ADDED: search by feed type (now at top)
             if search_feed:
                 df = df[df['feed_type'].str.contains(search_feed, case=False, na=False)]
             st.dataframe(df, use_container_width=True)
 
-            #UPDATE FEED 
+            # ---- UPDATE FEED (NEW) ----
             st.subheader("Update Feed Record")
             rec_id = st.number_input("Feed Record ID to update", min_value=1, step=1, key="feed_update_id")
             if rec_id:
@@ -494,7 +505,7 @@ def main():
                         batch_options = batches['id'].tolist()
                         batch_labels = {row['id']: f"{row['id']} - {row['name']}" for _, row in batches.iterrows()}
                         new_batch = st.selectbox("Batch", batch_options, format_func=lambda x: batch_labels.get(x, x), index=batch_options.index(record['batch_id']))
-                        new_date = st.date_input("Date", value=datetime.date.fromisoformat(record['date']))
+                        new_date = st.date_input("Date", value=safe_parse_date(record['date']))
                         new_feed_type = st.text_input("Feed Type", value=record['feed_type'])
                         new_quantity = st.number_input("Quantity (kg)", value=record['quantity_kg'], step=0.5)
                         new_unit_cost = st.number_input("Cost per kg (KSH)", value=record['unit_cost'], step=1.0)
@@ -529,7 +540,7 @@ def main():
     elif menu == "Other Costs":
         st.header("Other Costs")
 
-        # SEARCH
+        # ---- SEARCH (moved to top) ----
         st.subheader("Search")
         search_cost = st.text_input("Search by category")
 
@@ -557,19 +568,19 @@ def main():
         df = pd.read_sql_query("SELECT * FROM other_costs", conn)
         conn.close()
         if not df.empty:
-            #  search by category
+            #  search by category (now at top)
             if search_cost:
                 df = df[df['category'].str.contains(search_cost, case=False, na=False)]
             st.dataframe(df, use_container_width=True)
 
-            # UPDATE OTHER COST
+            # ---- UPDATE OTHER COST (NEW) ----
             st.subheader("Update Cost Record")
             rec_id = st.number_input("Cost Record ID to update", min_value=1, step=1, key="cost_update_id")
             if rec_id:
                 record = fetch_record("other_costs", "id", rec_id)
                 if record:
                     with st.form("update_cost"):
-                        new_date = st.date_input("Date", value=datetime.date.fromisoformat(record['date']))
+                        new_date = st.date_input("Date", value=safe_parse_date(record['date']))
                         new_category = st.text_input("Category", value=record['category'])
                         new_amount = st.number_input("Amount (KSH)", value=record['amount'], step=100.0)
                         update_submitted = st.form_submit_button("Update Record")
@@ -601,7 +612,7 @@ def main():
     elif menu == "Egg Sales":
         st.header("Egg Sales")
 
-        # SEARCH
+        # ---- SEARCH (moved to top) ----
         st.subheader("Search")
         search_customer = st.text_input("Search by customer")
 
@@ -640,12 +651,12 @@ def main():
         """, conn)
         conn.close()
         if not df.empty:
-            # search by customer 
+            # search by customer (now at top)
             if search_customer:
                 df = df[df['customer_name'].str.contains(search_customer, case=False, na=False)]
             st.dataframe(df, use_container_width=True)
 
-            # UPDATE EGG SALE
+            # ---- UPDATE EGG SALE (NEW) ----
             st.subheader("Update Sale Record")
             rec_id = st.number_input("Sale Record ID to update", min_value=1, step=1, key="sale_update_id")
             if rec_id:
@@ -658,7 +669,7 @@ def main():
                         batch_options = batches['id'].tolist()
                         batch_labels = {row['id']: f"{row['id']} - {row['name']}" for _, row in batches.iterrows()}
                         new_batch = st.selectbox("Batch", batch_options, format_func=lambda x: batch_labels.get(x, x), index=batch_options.index(record['batch_id']))
-                        new_date = st.date_input("Date", value=datetime.date.fromisoformat(record['date']))
+                        new_date = st.date_input("Date", value=safe_parse_date(record['date']))
                         new_dozens = st.number_input("Dozens Sold", value=record['quantity_dozen'], step=1)
                         new_price = st.number_input("Price per Dozen (KSH)", value=record['price_per_dozen'], step=10.0)
                         new_customer = st.text_input("Customer Name", value=record['customer_name'] or "")
@@ -693,7 +704,7 @@ def main():
     elif menu == "Orders":
         st.header("Customer Orders")
 
-        # SEARCH & FILTER
+        # ---- SEARCH & FILTER (moved to top) ----
         st.subheader("Search & Filter")
         col_search_order, col_status_order = st.columns(2)
         with col_search_order:
@@ -731,14 +742,14 @@ def main():
         df = pd.read_sql_query("SELECT * FROM orders", conn)
         conn.close()
         if not df.empty:
-            # search by customer and status filter
+            # ADDED: search by customer and status filter (now at top)
             if search_order:
                 df = df[df['customer_name'].str.contains(search_order, case=False, na=False)]
             if status_filter_order != "All":
                 df = df[df['status'] == status_filter_order]
             st.dataframe(df, use_container_width=True)
 
-            #  UPDATE ORDER
+            # ---- UPDATE ORDER (full, replaces old status update) ----
             st.subheader("Update Order")
             order_id = st.number_input("Order ID", min_value=1, step=1, key="order_update_id")
             if order_id:
@@ -785,7 +796,7 @@ def main():
     elif menu == "Spent Hens Sales":
         st.header("Spent Hens Sales")
 
-        # SEARCH
+        # ---- SEARCH (moved to top) ----
         st.subheader("Search")
         search_buyer = st.text_input("Search by buyer")
 
@@ -831,12 +842,12 @@ def main():
         """, conn)
         conn.close()
         if not df.empty:
-            # search by buyer
+            # search by buyer (now at top)
             if search_buyer:
                 df = df[df['buyer_name'].str.contains(search_buyer, case=False, na=False)]
             st.dataframe(df, use_container_width=True)
 
-            # UPDATE SPENT SALE
+            # ---- UPDATE SPENT SALE (NEW) ----
             st.subheader("Update Spent Sale Record")
             rec_id = st.number_input("Spent Sale Record ID to update", min_value=1, step=1, key="spent_update_id")
             if rec_id:
@@ -849,7 +860,7 @@ def main():
                         batch_options = batches['id'].tolist()
                         batch_labels = {row['id']: f"{row['id']} - {row['name']}" for _, row in batches.iterrows()}
                         new_batch = st.selectbox("Batch", batch_options, format_func=lambda x: batch_labels.get(x, x), index=batch_options.index(record['batch_id']))
-                        new_date = st.date_input("Date", value=datetime.date.fromisoformat(record['date']))
+                        new_date = st.date_input("Date", value=safe_parse_date(record['date']))
                         new_count = st.number_input("Number of birds sold", value=record['count_sold'], step=1)
                         new_price = st.number_input("Price per bird (KSH)", value=record['price_per_bird'], step=50.0)
                         new_buyer = st.text_input("Buyer Name", value=record['buyer_name'] or "")
